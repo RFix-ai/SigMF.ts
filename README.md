@@ -3,7 +3,7 @@
 A browser-first TypeScript library for reading and writing [SigMF](https://github.com/sigmf/SigMF) (Signal Metadata Format) files.
 
 [![npm version](https://badge.fury.io/js/sigmf.svg)](https://www.npmjs.com/package/sigmf)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Features
 
@@ -546,7 +546,7 @@ npm run format
 
 ## License
 
-MIT © 2026
+Apache License 2.0 © 2026
 
 ## See Also
 
