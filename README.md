@@ -4,6 +4,7 @@ Unofficial, community-maintained TypeScript library for reading and writing [Sig
 
 [![npm version](https://badge.fury.io/js/sigmf.svg)](https://www.npmjs.com/package/sigmf)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![codecov](https://codecov.io/gh/RFix-ai/SigMF.ts/graph/badge.svg)](https://codecov.io/gh/RFix-ai/SigMF.ts)
 
 ## Features
 
