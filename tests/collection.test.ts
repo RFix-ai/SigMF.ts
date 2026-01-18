@@ -247,4 +247,100 @@ describe('SigMFCollection', () => {
       expect(json).not.toContain('\n');
     });
   });
+
+  describe('additional validation edge cases', () => {
+    it('should fail validation for invalid version pattern', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:version'] = 'invalid-version';
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('X.Y.Z'))).toBe(true);
+    });
+
+    it('should fail validation for non-array streams', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:streams'] = 'not an array' as unknown as any;
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('array'))).toBe(true);
+    });
+
+    it('should fail validation for non-object stream entry', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:streams'] = ['not an object'] as unknown as any;
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('object'))).toBe(true);
+    });
+
+    it('should fail validation for missing stream hash', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:streams'] = [{ name: 'test' }] as unknown as any;
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('hash'))).toBe(true);
+    });
+
+    it('should fail validation for non-array extensions', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:extensions'] = 'not an array' as unknown as any;
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('array'))).toBe(true);
+    });
+
+    it('should fail validation for non-object extension entry', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:extensions'] = ['not an object'] as unknown as any;
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('object'))).toBe(true);
+    });
+
+    it('should fail validation for missing extension version', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:extensions'] = [
+        { name: 'test', optional: true } as any,
+      ];
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('version'))).toBe(true);
+    });
+
+    it('should fail validation for missing extension optional flag', () => {
+      const collection = new SigMFCollection();
+      collection.collection['core:extensions'] = [
+        { name: 'test', version: '1.0.0' } as any,
+      ];
+
+      const result = collection.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('boolean'))).toBe(true);
+    });
+  });
+
+  describe('getStreams edge cases', () => {
+    it('should return empty array when no streams defined', () => {
+      const collection = new SigMFCollection();
+      expect(collection.getStreams()).toEqual([]);
+    });
+  });
+
+  describe('removeRecording edge cases', () => {
+    it('should return false when streams is undefined', () => {
+      const collection = new SigMFCollection();
+      // Ensure no streams array exists
+      delete collection.collection['core:streams'];
+      
+      const result = collection.removeRecording('non-existent');
+      expect(result).toBe(false);
+    });
+  });
 });

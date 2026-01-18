@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { sha512, verifySha512, verifyHashDetailed } from '../src/hash.js';
+import { sha512, verifySha512, sha512Streaming, verifyHashDetailed } from '../src/hash.js';
 
 // Mock crypto.subtle for Node.js environment
 const mockDigest = vi.fn(async (_algorithm: string, data: ArrayBuffer) => {
@@ -124,6 +124,49 @@ describe('Hash utilities', () => {
       expect(result.valid).toBe(false);
       expect(result.expected).toBe(wrongHash);
       expect(result.actual).not.toBe(wrongHash);
+    });
+  });
+
+  describe('sha512Streaming', () => {
+    it('should hash a Blob with progress callback', async () => {
+      const data = new Uint8Array(100);
+      for (let i = 0; i < 100; i++) data[i] = i;
+      const blob = new Blob([data]);
+
+      const progressCalls: Array<[number, number]> = [];
+      const hash = await sha512Streaming(blob, (bytesRead, totalBytes) => {
+        progressCalls.push([bytesRead, totalBytes]);
+      });
+
+      expect(hash).toHaveLength(128);
+      expect(progressCalls.length).toBeGreaterThan(0);
+      // Last progress call should have bytesRead === totalBytes
+      const lastCall = progressCalls[progressCalls.length - 1];
+      expect(lastCall[0]).toBe(lastCall[1]);
+    });
+
+    it('should hash a Blob without progress callback', async () => {
+      const data = new Uint8Array([1, 2, 3, 4]);
+      const blob = new Blob([data]);
+
+      const hash = await sha512Streaming(blob);
+      expect(hash).toHaveLength(128);
+    });
+
+    it('should produce same hash as sha512', async () => {
+      const data = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+      const blob = new Blob([data]);
+
+      const hashDirect = await sha512(data);
+      const hashStreaming = await sha512Streaming(blob);
+
+      expect(hashStreaming).toBe(hashDirect);
+    });
+
+    it('should handle empty Blob', async () => {
+      const blob = new Blob([]);
+      const hash = await sha512Streaming(blob);
+      expect(hash).toHaveLength(128);
     });
   });
 });

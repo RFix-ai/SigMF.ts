@@ -316,6 +316,24 @@ describe('SigMFRecording', () => {
     });
   });
 
+  describe('getSampleRate and setSampleRate', () => {
+    it('should get undefined when sample rate is not set', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      expect(recording.getSampleRate()).toBeUndefined();
+    });
+
+    it('should get the sample rate when set via constructor', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le', sampleRate: 2.4e6 });
+      expect(recording.getSampleRate()).toBe(2.4e6);
+    });
+
+    it('should set and get sample rate', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.setSampleRate(1e6);
+      expect(recording.getSampleRate()).toBe(1e6);
+    });
+  });
+
   describe('calculateDataSize', () => {
     it('should calculate data size for single channel', () => {
       const recording = new SigMFRecording({ datatype: 'cf32_le' });
@@ -436,6 +454,402 @@ describe('SigMFRecording', () => {
       const recording = new SigMFRecording({ datatype: 'cf32_le' });
       recording.setCollection('my-collection');
       expect(recording.getCollection()).toBe('my-collection');
+    });
+  });
+
+  describe('additional validation edge cases', () => {
+    it('should fail for invalid version format', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:version'] = 'invalid';
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('version'))).toBe(true);
+    });
+
+    it('should fail for non-integer num_channels', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:num_channels'] = 1.5;
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('num_channels'))).toBe(true);
+    });
+
+    it('should fail for negative num_channels', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:num_channels'] = -1;
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for non-integer offset', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:offset'] = 1.5;
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('offset'))).toBe(true);
+    });
+
+    it('should fail for negative offset', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:offset'] = -10;
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for SHA-512 with non-hex characters', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:sha512'] = 'g'.repeat(128); // g is not hex
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('hex'))).toBe(true);
+    });
+
+    it('should fail for missing capture sample_start', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.captures = [{ 'core:sample_start': undefined as unknown as number }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('sample_start'))).toBe(true);
+    });
+
+    it('should fail for non-integer capture sample_start', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.captures = [{ 'core:sample_start': 1.5 }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for negative capture sample_start', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.captures = [{ 'core:sample_start': -100 }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for frequency exceeding maximum', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.addCapture({ sampleStart: 0, frequency: 2e12 }); // Exceeds 1 THz
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.path.includes('frequency'))).toBe(true);
+    });
+
+    it('should fail for missing annotation sample_start', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{ 'core:sample_start': undefined as unknown as number }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for non-integer annotation sample_start', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{ 'core:sample_start': 1.5 }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for negative annotation sample_start', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{ 'core:sample_start': -50 }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for unsorted annotations', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [
+        { 'core:sample_start': 500 },
+        { 'core:sample_start': 100 },
+      ];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('sorted'))).toBe(true);
+    });
+
+    it('should fail for non-integer sample_count', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{ 'core:sample_start': 0, 'core:sample_count': 1.5 }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for negative sample_count', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{ 'core:sample_start': 0, 'core:sample_count': -100 }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for freq_lower_edge > freq_upper_edge', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{
+        'core:sample_start': 0,
+        'core:freq_lower_edge': 200e6,
+        'core:freq_upper_edge': 100e6, // Lower than lower edge
+      }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('freq_lower_edge'))).toBe(true);
+    });
+
+    it('should fail for non-number freq_lower_edge', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{
+        'core:sample_start': 0,
+        'core:freq_lower_edge': 'not a number' as unknown as number,
+        'core:freq_upper_edge': 100e6,
+      }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should fail for non-number freq_upper_edge', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.annotations = [{
+        'core:sample_start': 0,
+        'core:freq_lower_edge': 100e6,
+        'core:freq_upper_edge': 'not a number' as unknown as number,
+      }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+    });
+
+    it('should validate GeoJSON with invalid type', () => {
+      const recording = new SigMFRecording({
+        datatype: 'cf32_le',
+        geolocation: { type: 'LineString' as 'Point', coordinates: [0, 0] },
+      });
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('Point'))).toBe(true);
+    });
+
+    it('should validate GeoJSON with non-array coordinates', () => {
+      const recording = new SigMFRecording({
+        datatype: 'cf32_le',
+        geolocation: { type: 'Point', coordinates: 'invalid' as unknown as [number, number] },
+      });
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('array'))).toBe(true);
+    });
+
+    it('should validate GeoJSON with wrong coordinate count', () => {
+      const recording = new SigMFRecording({
+        datatype: 'cf32_le',
+        geolocation: { type: 'Point', coordinates: [0] as unknown as [number, number] },
+      });
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('2 or 3 elements'))).toBe(true);
+    });
+
+    it('should validate GeoJSON with invalid latitude', () => {
+      const recording = new SigMFRecording({
+        datatype: 'cf32_le',
+        geolocation: { type: 'Point', coordinates: [0, 100] }, // latitude > 90
+      });
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('latitude'))).toBe(true);
+    });
+
+    it('should validate GeoJSON with non-number altitude', () => {
+      const recording = new SigMFRecording({
+        datatype: 'cf32_le',
+        geolocation: { type: 'Point', coordinates: [0, 0, 'high' as unknown as number] },
+      });
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('altitude'))).toBe(true);
+    });
+
+    it('should validate GeoJSON that is not an object', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.global['core:geolocation'] = 'not an object' as unknown;
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('object'))).toBe(true);
+    });
+
+    it('should validate GeoJSON in capture segment', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.captures = [{
+        'core:sample_start': 0,
+        'core:geolocation': { type: 'Point', coordinates: [200, 0] }, // Invalid longitude
+      }];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message.includes('longitude'))).toBe(true);
+    });
+
+    it('should pass validation for valid 3D GeoJSON', () => {
+      const recording = new SigMFRecording({
+        datatype: 'cf32_le',
+        geolocation: { type: 'Point', coordinates: [-122.4194, 37.7749, 100] },
+      });
+
+      const result = recording.validate();
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('fromJSON edge cases', () => {
+    it('should throw for missing version', () => {
+      expect(() =>
+        SigMFRecording.fromJSON({
+          global: { 'core:datatype': 'cf32_le' },
+          captures: [],
+          annotations: [],
+        } as unknown as string)
+      ).toThrow('missing required field core:version');
+    });
+
+    it('should parse recording without captures or annotations arrays', () => {
+      const recording = SigMFRecording.fromJSON({
+        global: {
+          'core:datatype': 'cf32_le',
+          'core:version': '1.2.0',
+        },
+      } as unknown as string);
+
+      expect(recording.captures).toEqual([]);
+      expect(recording.annotations).toEqual([]);
+    });
+  });
+
+  describe('fromMetadata', () => {
+    it('should create recording from metadata object', () => {
+      const metadata = {
+        global: {
+          'core:datatype': 'ri16_le' as const,
+          'core:version': '1.2.0',
+          'core:sample_rate': 500000,
+        },
+        captures: [{ 'core:sample_start': 0 }],
+        annotations: [{ 'core:sample_start': 100, 'core:label': 'Test' }],
+      };
+
+      const recording = SigMFRecording.fromMetadata(metadata);
+      
+      expect(recording.global['core:datatype']).toBe('ri16_le');
+      expect(recording.global['core:sample_rate']).toBe(500000);
+      expect(recording.captures).toHaveLength(1);
+      expect(recording.annotations).toHaveLength(1);
+    });
+  });
+
+  describe('addCapture with all options', () => {
+    it('should add capture with globalIndex', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.addCapture({
+        sampleStart: 0,
+        globalIndex: 1000000,
+      });
+
+      expect(recording.captures[0]['core:global_index']).toBe(1000000);
+    });
+
+    it('should add capture with geolocation', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.addCapture({
+        sampleStart: 0,
+        geolocation: { type: 'Point', coordinates: [-122.4194, 37.7749] },
+      });
+
+      expect(recording.captures[0]['core:geolocation']).toBeDefined();
+    });
+  });
+
+  describe('addAnnotation with all options', () => {
+    it('should add annotation with comment', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.addAnnotation({
+        sampleStart: 0,
+        comment: 'This is a comment',
+      });
+
+      expect(recording.annotations[0]['core:comment']).toBe('This is a comment');
+    });
+
+    it('should add annotation with generator', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.addAnnotation({
+        sampleStart: 0,
+        generator: 'manual',
+      });
+
+      expect(recording.annotations[0]['core:generator']).toBe('manual');
+    });
+
+    it('should add annotation with uuid', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      recording.addAnnotation({
+        sampleStart: 0,
+        uuid: '550e8400-e29b-41d4-a716-446655440000',
+      });
+
+      expect(recording.annotations[0]['core:uuid']).toBe('550e8400-e29b-41d4-a716-446655440000');
+    });
+  });
+
+  describe('getSha512', () => {
+    it('should return undefined when sha512 is not set', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      expect(recording.getSha512()).toBeUndefined();
+    });
+
+    it('should return the hash when set', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      const hash = 'a'.repeat(128);
+      recording.setSha512(hash);
+      expect(recording.getSha512()).toBe(hash);
+    });
+  });
+
+  describe('validation missing required fields', () => {
+    it('should fail for missing core:datatype', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      delete (recording.global as any)['core:datatype'];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message === 'is required' && e.path === 'global.core:datatype')).toBe(true);
+    });
+
+    it('should fail for missing core:version', () => {
+      const recording = new SigMFRecording({ datatype: 'cf32_le' });
+      delete (recording.global as any)['core:version'];
+
+      const result = recording.validate();
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.message === 'is required' && e.path === 'global.core:version')).toBe(true);
     });
   });
 });

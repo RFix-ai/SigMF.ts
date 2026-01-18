@@ -209,7 +209,8 @@ export async function readSamplesFromBlob(
     return readSamples(buffer, datatype, { offset: 0, count: sampleCount });
   }
 
-  // For large files, use streaming
+  // For large files (>50MB), use streaming to avoid memory issues.
+  // Coverage: This branch is impractical to test in CI as it requires 50MB+ test data.
   const result = info.isComplex
     ? new Float64Array(sampleCount * 2)
     : new Float64Array(sampleCount);
@@ -273,6 +274,7 @@ export async function readSamplesFromBlob(
   } finally {
     reader.releaseLock();
   }
+
 
   return {
     ...(info.isComplex ? { complex: result } : { real: result }),
@@ -415,7 +417,9 @@ export async function* streamSamples(
       }
     }
 
-    // Process any remaining complete samples
+    // Process any remaining complete samples.
+    // Coverage: This is defensive code - complete samples are always processed in the loop
+    // above, so this branch is unreachable in practice but kept for safety.
     if (buffer.length >= info.bytesPerSample) {
       const completeSamples = Math.floor(buffer.length / info.bytesPerSample);
       const completeBytes = completeSamples * info.bytesPerSample;

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   readSamples,
+  readSamplesFromBlob,
   writeSamples,
   writeSamplesComplex,
+  streamSamples,
   getComplexSample,
   magnitude,
   phase,
@@ -308,5 +310,279 @@ describe('interleave/deinterleave', () => {
 
   it('should throw for mismatched lengths', () => {
     expect(() => interleave([1, 2], [1])).toThrow('same length');
+  });
+});
+
+describe('readSamplesFromBlob', () => {
+  it('should read samples from a small Blob', async () => {
+    // Create test data: 2 complex samples
+    const buffer = new ArrayBuffer(16);
+    const view = new DataView(buffer);
+    view.setFloat32(0, 1.0, true);
+    view.setFloat32(4, 2.0, true);
+    view.setFloat32(8, 3.0, true);
+    view.setFloat32(12, 4.0, true);
+
+    const blob = new Blob([buffer]);
+    const result = await readSamplesFromBlob(blob, 'cf32_le');
+
+    expect(result.sampleCount).toBe(2);
+    expect(result.complex![0]).toBeCloseTo(1.0);
+    expect(result.complex![1]).toBeCloseTo(2.0);
+  });
+
+  it('should read with offset and count', async () => {
+    const buffer = new ArrayBuffer(24); // 3 complex cf32 samples
+    const view = new DataView(buffer);
+    view.setFloat32(0, 1.0, true);
+    view.setFloat32(4, 0.0, true);
+    view.setFloat32(8, 2.0, true);
+    view.setFloat32(12, 0.0, true);
+    view.setFloat32(16, 3.0, true);
+    view.setFloat32(20, 0.0, true);
+
+    const blob = new Blob([buffer]);
+    const result = await readSamplesFromBlob(blob, 'cf32_le', { offset: 1, count: 1 });
+
+    expect(result.sampleCount).toBe(1);
+    expect(result.complex![0]).toBeCloseTo(2.0);
+  });
+
+  it('should call progress callback for small files', async () => {
+    const buffer = new ArrayBuffer(16);
+    const blob = new Blob([buffer]);
+
+    const progressCalls: Array<[number, number]> = [];
+    await readSamplesFromBlob(blob, 'cf32_le', {}, (bytesRead, total) => {
+      progressCalls.push([bytesRead, total]);
+    });
+
+    expect(progressCalls.length).toBeGreaterThan(0);
+  });
+
+  it('should read real samples from Blob', async () => {
+    const buffer = new ArrayBuffer(12); // 3 real rf32 samples
+    const view = new DataView(buffer);
+    view.setFloat32(0, 1.0, true);
+    view.setFloat32(4, 2.0, true);
+    view.setFloat32(8, 3.0, true);
+
+    const blob = new Blob([buffer]);
+    const result = await readSamplesFromBlob(blob, 'rf32_le');
+
+    expect(result.sampleCount).toBe(3);
+    expect(result.real![0]).toBeCloseTo(1.0);
+    expect(result.real![2]).toBeCloseTo(3.0);
+  });
+});
+
+describe('streamSamples', () => {
+  it('should stream samples from a Blob', async () => {
+    // Create test data with multiple samples
+    const sampleCount = 10;
+    const buffer = new ArrayBuffer(sampleCount * 8); // cf32_le = 8 bytes per sample
+    const view = new DataView(buffer);
+    for (let i = 0; i < sampleCount; i++) {
+      view.setFloat32(i * 8, i + 1, true);     // I
+      view.setFloat32(i * 8 + 4, -(i + 1), true); // Q
+    }
+
+    const blob = new Blob([buffer]);
+    const chunks: number[] = [];
+
+    for await (const chunk of streamSamples(blob, 'cf32_le', 3)) {
+      chunks.push(chunk.sampleCount);
+    }
+
+    // Should have yielded multiple chunks
+    expect(chunks.reduce((a, b) => a + b, 0)).toBe(sampleCount);
+  });
+
+  it('should stream real samples', async () => {
+    const sampleCount = 5;
+    const buffer = new ArrayBuffer(sampleCount * 4); // rf32_le = 4 bytes per sample
+    const view = new DataView(buffer);
+    for (let i = 0; i < sampleCount; i++) {
+      view.setFloat32(i * 4, i * 0.1, true);
+    }
+
+    const blob = new Blob([buffer]);
+    let totalSamples = 0;
+
+    for await (const chunk of streamSamples(blob, 'rf32_le', 2)) {
+      expect(chunk.real).toBeDefined();
+      totalSamples += chunk.sampleCount;
+    }
+
+    expect(totalSamples).toBe(sampleCount);
+  });
+
+  it('should handle empty Blob', async () => {
+    const blob = new Blob([]);
+    const chunks = [];
+
+    for await (const chunk of streamSamples(blob, 'cf32_le')) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toHaveLength(0);
+  });
+
+  it('should handle partial samples at chunk boundaries', async () => {
+    // Create data that doesn't align perfectly with chunk size
+    const sampleCount = 7;
+    const buffer = new ArrayBuffer(sampleCount * 8);
+    const view = new DataView(buffer);
+    for (let i = 0; i < sampleCount; i++) {
+      view.setFloat32(i * 8, i, true);
+      view.setFloat32(i * 8 + 4, i, true);
+    }
+
+    const blob = new Blob([buffer]);
+    let totalSamples = 0;
+
+    for await (const chunk of streamSamples(blob, 'cf32_le', 3)) {
+      totalSamples += chunk.sampleCount;
+    }
+
+    expect(totalSamples).toBe(sampleCount);
+  });
+
+  it('should process remaining samples after stream ends', async () => {
+    // Create data where the last chunk has remaining samples after loop exits
+    // Use a very large chunk size so data accumulates but loop exits before processing
+    const sampleCount = 2;
+    const buffer = new ArrayBuffer(sampleCount * 8); // cf32_le = 8 bytes per sample
+    const view = new DataView(buffer);
+    view.setFloat32(0, 1.5, true);
+    view.setFloat32(4, 2.5, true);
+    view.setFloat32(8, 3.5, true);
+    view.setFloat32(12, 4.5, true);
+
+    const blob = new Blob([buffer]);
+    const results: number[] = [];
+
+    // Use a chunk size larger than the total data
+    // This ensures the while loop accumulates all data then exits
+    for await (const chunk of streamSamples(blob, 'cf32_le', 1000)) {
+      results.push(chunk.sampleCount);
+    }
+
+    // All samples should still be processed
+    expect(results.reduce((a, b) => a + b, 0)).toBe(sampleCount);
+  });
+});
+
+describe('additional datatype support', () => {
+  it('should read and write ci32_le samples', () => {
+    const samples = [100000, -100000, 50000, 50000];
+    const bytes = writeSamples(samples, 'ci32_le');
+    const result = readSamples(bytes.buffer, 'ci32_le');
+
+    expect(result.sampleCount).toBe(2);
+    expect(result.complex![0]).toBe(100000);
+    expect(result.complex![1]).toBe(-100000);
+  });
+
+  it('should read and write cu16_le samples', () => {
+    const samples = [65535, 0, 32768, 32768];
+    const bytes = writeSamples(samples, 'cu16_le');
+    const result = readSamples(bytes.buffer, 'cu16_le');
+
+    expect(result.sampleCount).toBe(2);
+    expect(result.complex![0]).toBe(65535);
+    expect(result.complex![1]).toBe(0);
+  });
+
+  it('should read and write ci8 samples', () => {
+    const samples = [127, -128, 0, 64];
+    const bytes = writeSamples(samples, 'ci8');
+    const result = readSamples(bytes.buffer, 'ci8');
+
+    expect(result.sampleCount).toBe(2);
+    expect(result.complex![0]).toBe(127);
+    expect(result.complex![1]).toBe(-128);
+  });
+
+  it('should read and write cf64_le samples', () => {
+    const samples = [1.123456789, 2.987654321, 3.0, 4.0];
+    const bytes = writeSamples(samples, 'cf64_le');
+    const result = readSamples(bytes.buffer, 'cf64_le');
+
+    expect(result.sampleCount).toBe(2);
+    expect(result.complex![0]).toBeCloseTo(1.123456789, 8);
+    expect(result.complex![1]).toBeCloseTo(2.987654321, 8);
+  });
+
+  it('should read and write cf64_be samples', () => {
+    const samples = [1.5, 2.5];
+    const bytes = writeSamples(samples, 'cf64_be');
+    const result = readSamples(bytes.buffer, 'cf64_be');
+
+    expect(result.sampleCount).toBe(1);
+    expect(result.complex![0]).toBeCloseTo(1.5);
+    expect(result.complex![1]).toBeCloseTo(2.5);
+  });
+
+  it('should read and write ri32_le samples', () => {
+    const samples = [2147483647, -2147483648, 0];
+    const bytes = writeSamples(samples, 'ri32_le');
+    const result = readSamples(bytes.buffer, 'ri32_le');
+
+    expect(result.sampleCount).toBe(3);
+    expect(result.real![0]).toBe(2147483647);
+    expect(result.real![1]).toBe(-2147483648);
+  });
+
+  it('should read and write ru16_le samples', () => {
+    const samples = [0, 65535, 32768];
+    const bytes = writeSamples(samples, 'ru16_le');
+    const result = readSamples(bytes.buffer, 'ru16_le');
+
+    expect(result.sampleCount).toBe(3);
+    expect(result.real![0]).toBe(0);
+    expect(result.real![1]).toBe(65535);
+  });
+
+  it('should read and write ru8 samples', () => {
+    const samples = [0, 255, 128];
+    const bytes = writeSamples(samples, 'ru8');
+    const result = readSamples(bytes.buffer, 'ru8');
+
+    expect(result.sampleCount).toBe(3);
+    expect(result.real![0]).toBe(0);
+    expect(result.real![1]).toBe(255);
+  });
+
+  it('should read and write rf64_le samples', () => {
+    const samples = [Math.PI, Math.E, 0];
+    const bytes = writeSamples(samples, 'rf64_le');
+    const result = readSamples(bytes.buffer, 'rf64_le');
+
+    expect(result.sampleCount).toBe(3);
+    expect(result.real![0]).toBeCloseTo(Math.PI, 10);
+    expect(result.real![1]).toBeCloseTo(Math.E, 10);
+  });
+
+  it('should handle big-endian int16', () => {
+    const buffer = new ArrayBuffer(4);
+    const view = new DataView(buffer);
+    view.setInt16(0, 1000, false); // big-endian
+    view.setInt16(2, -1000, false);
+
+    const result = readSamples(buffer, 'ci16_be');
+    expect(result.complex![0]).toBe(1000);
+    expect(result.complex![1]).toBe(-1000);
+  });
+
+  it('should handle big-endian int32', () => {
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setInt32(0, 100000, false); // big-endian
+    view.setInt32(4, -100000, false);
+
+    const result = readSamples(buffer, 'ci32_be');
+    expect(result.complex![0]).toBe(100000);
+    expect(result.complex![1]).toBe(-100000);
   });
 });

@@ -383,6 +383,10 @@ describe('Common Extensions', () => {
       expect(ANTENNA_EXTENSION.globalFields?.some(f => f.name === 'gain')).toBe(true);
       expect(ANTENNA_EXTENSION.captureFields?.some(f => f.name === 'azimuth_angle')).toBe(true);
     });
+
+    it('should have collection fields', () => {
+      expect(ANTENNA_EXTENSION.collectionFields?.some(f => f.name === 'hagl')).toBe(true);
+    });
   });
 
   describe('CAPTURE_DETAILS_EXTENSION', () => {
@@ -390,5 +394,178 @@ describe('Common Extensions', () => {
       expect(CAPTURE_DETAILS_EXTENSION.name).toBe('capture_details');
       expect(CAPTURE_DETAILS_EXTENSION.captureFields?.some(f => f.name === 'gain')).toBe(true);
     });
+  });
+});
+
+describe('validateExtensionFields edge cases', () => {
+  beforeEach(() => {
+    clearExtensions();
+  });
+
+  afterEach(() => {
+    clearExtensions();
+  });
+
+  it('should validate capture fields', () => {
+    registerExtension({
+      name: 'test',
+      version: '1.0.0',
+      captureFields: [
+        { name: 'capture_value', required: false, type: 'number' },
+      ],
+    });
+
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+        'core:extensions': [{ name: 'test', version: '1.0.0', optional: true }],
+      },
+      captures: [
+        { 'core:sample_start': 0, 'test:capture_value': 'not a number' },
+      ],
+      annotations: [],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].path).toContain('captures');
+  });
+
+  it('should validate annotation fields', () => {
+    registerExtension({
+      name: 'test',
+      version: '1.0.0',
+      annotationFields: [
+        { name: 'annotation_value', required: false, type: 'string' },
+      ],
+    });
+
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+        'core:extensions': [{ name: 'test', version: '1.0.0', optional: true }],
+      },
+      captures: [],
+      annotations: [
+        { 'core:sample_start': 0, 'test:annotation_value': 123 }, // Wrong type
+      ],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].path).toContain('annotations');
+  });
+
+  it('should handle null values correctly', () => {
+    registerExtension({
+      name: 'test',
+      version: '1.0.0',
+      globalFields: [
+        { name: 'nullable', required: false, type: 'null' },
+      ],
+    });
+
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+        'core:extensions': [{ name: 'test', version: '1.0.0', optional: true }],
+        'test:nullable': null,
+      },
+      captures: [],
+      annotations: [],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('should handle array values correctly', () => {
+    registerExtension({
+      name: 'test',
+      version: '1.0.0',
+      globalFields: [
+        { name: 'items', required: false, type: 'array' },
+      ],
+    });
+
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+        'core:extensions': [{ name: 'test', version: '1.0.0', optional: true }],
+        'test:items': [1, 2, 3],
+      },
+      captures: [],
+      annotations: [],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('should handle boolean values correctly', () => {
+    registerExtension({
+      name: 'test',
+      version: '1.0.0',
+      globalFields: [
+        { name: 'enabled', required: false, type: 'boolean' },
+      ],
+    });
+
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+        'core:extensions': [{ name: 'test', version: '1.0.0', optional: true }],
+        'test:enabled': true,
+      },
+      captures: [],
+      annotations: [],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('should skip validation when no extensions declared', () => {
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+      },
+      captures: [],
+      annotations: [],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('should ignore unknown fields in registered extensions', () => {
+    registerExtension({
+      name: 'test',
+      version: '1.0.0',
+      globalFields: [
+        { name: 'known', required: false, type: 'string' },
+      ],
+    });
+
+    const metadata: SigMFMetadata = {
+      global: {
+        'core:datatype': 'cf32_le',
+        'core:version': '1.0.0',
+        'core:extensions': [{ name: 'test', version: '1.0.0', optional: true }],
+        'test:known': 'valid',
+        'test:unknown': 'also valid - not checked',
+      },
+      captures: [],
+      annotations: [],
+    };
+
+    const errors = validateExtensionFields(metadata);
+    expect(errors).toHaveLength(0);
   });
 });
