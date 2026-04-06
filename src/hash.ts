@@ -34,9 +34,26 @@ export async function sha512(data: ArrayBuffer | Uint8Array | Blob): Promise<str
   const hashBuffer = await crypto.subtle.digest('SHA-512', buffer);
   const hashArray = new Uint8Array(hashBuffer);
 
-  return Array.from(hashArray)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return toHex(hashArray);
+}
+
+/**
+ * Pre-calculated hex string lookup table for optimization.
+ */
+const HEX_LOOKUP = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
+
+/**
+ * Convert Uint8Array to hex string efficiently.
+ *
+ * @param bytes - Byte array to convert
+ * @returns Lowercase hex string
+ */
+function toHex(bytes: Uint8Array): string {
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    hex += HEX_LOOKUP[bytes[i]];
+  }
+  return hex;
 }
 
 /**
